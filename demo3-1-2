@@ -1,0 +1,151 @@
+#include <iostream>
+using namespace std;
+
+struct Node {
+    int coef;
+    int exp;
+    Node* next;
+    Node(int c = 0, int e = 0) : coef(c), exp(e), next(nullptr) {} //初始化建構子 呼叫Node() 預設Node(0,0)
+};
+
+Node* NewPoly() { //創建Node()時創造一個指向自己的head dummy node下一項才是term 1
+    Node* head = new Node();
+    head -> next = head;
+    return head;
+}
+
+void insertSort(Node* head, int c, int e) {
+    if (c == 0) return;
+    
+    Node* prev = head;           //prev先指向dummy node
+    Node* curr = head -> next;   //curr指向term 1 
+    
+    while (curr != head && curr -> exp > e) { //找到exp比自己小的prev -> exp > e >= curr -> exp
+        prev = curr;
+        curr = curr -> next;
+    }
+    
+    if (curr != head && curr -> exp == e) { // exp 相同 合併
+        curr -> coef += c;
+        if(curr -> coef == 0) {  //係數相加 = 0 
+            prev -> next = curr -> next;
+            delete curr;
+        }
+        return;
+    }
+    
+    Node* n = new Node(c, e); //若都沒有相同的會在prev curr之間新增一個新的exp term
+    n -> next = curr;
+    prev -> next = n;
+}
+
+void tailNode(Node* head, Node*& tail, int c, int e) { //會更改外部tail的位置 需用reference
+    if (c == 0) return;
+    
+    Node* t = new Node(c, e);
+    t -> next = head;
+    tail -> next = t;
+    tail = t;
+}
+//Add poly第一次做C長度 = 0 O(n) 第二次 C長度 = n O(n)......第m次 C長度= mn O(mn) 
+Node* polyAdd(Node* A, Node* B) { //C = A + B 哪邊EXP比較高就會丟到TAIL(前提降冪) exp相同相加丟到TAIl
+    Node* C = NewPoly();
+    Node* tail = C;
+    Node* pa = A -> next;
+    Node* pb = B -> next;
+    
+    while (pa != A && pb != B) { //做到一方用完
+        if (pa -> exp > pb -> exp) {
+            tailNode(C, tail, pa -> coef, pa -> exp);
+            pa = pa -> next;
+        }
+        else if (pa -> exp < pb -> exp) {
+            tailNode(C, tail, pb -> coef, pb -> exp);
+            pb = pb -> next;
+        }
+        else {
+            int sum = pa -> coef + pb -> coef;
+            if (sum != 0) {
+                tailNode(C, tail, sum, pa -> exp);
+            }
+            pa = pa -> next;
+            pb = pb -> next;
+        }
+    }
+    // pa pb有一方會先到A B 剩下的直接從TAIL填入
+    while (pa != A) {
+        tailNode(C, tail, pa -> coef, pa -> exp);
+        pa = pa -> next;
+    }
+    while (pb != B) {
+        tailNode(C, tail, pb -> coef, pb -> exp);
+        pb = pb -> next;
+    }
+    return C;
+}
+
+Node* multiplyByTerm(Node* B, int ca, int ea) { // A * B = A1*B1 + A1*B2 +...... // O(n) b的terms n個
+    Node* T = NewPoly();
+    Node* tail = T;
+
+    for (Node* pb = B -> next; pb != B; pb = pb->next) { //b從TERM 1 到 最後一個
+        int c = ca * pb -> coef;
+        int e = ea + pb -> exp;
+        tailNode(T, tail, c, e);   // exponent 自然會維持降冪
+    }
+    return T;
+}
+
+Node* polyMul_nondense(Node* A, Node* B) {
+    Node* C = NewPoly();   // 一開始是 0 多項式
+
+    for (Node* pa = A->next; pa != A; pa = pa->next) { //a從TERM 1 到 最後一個 m 次
+        Node* T = multiplyByTerm(B, pa->coef, pa->exp); // O(n)
+        Node* newC = polyAdd(C, T);  // C 新的結果  O(n...2n...3n....mn)
+        C = newC;
+    }
+    return C;
+}
+Node* readPoly() {
+    int m;
+    if (!(cin >> m)) return nullptr;
+
+    Node* H = NewPoly();
+    while (m--) {
+        int c, e;
+        cin >> c >> e;
+        insertSort(H, c, e);
+    }
+    return H;
+}
+
+// 印polynomial
+void printPoly(Node* H) {
+    Node* p = H -> next;
+    if (p == H) {   // 空多項式
+        cout << 0;
+        return;
+    }
+
+    bool first = true;
+    while (p != H) {
+        if (!first && p -> coef > 0) cout << "+";
+        cout << p -> coef << "x^" << p -> exp;
+        first = false;
+        p = p -> next;
+    }
+}
+
+
+int main() {
+
+    // 先輸入第一個多項式的 term 數 m，再輸入 m 組 coef exp
+    // 再輸入第二個多項式的 term 數 n，再輸入 n 組 coef exp
+    Node* A = readPoly();
+    Node* B = readPoly();
+
+    Node* C = polyMul_nondense(A, B);
+
+    printPoly(C);
+    return 0;
+}
