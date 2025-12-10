@@ -1,0 +1,250 @@
+#include <iostream>
+#include <chrono>
+#include <iomanip>
+#include <cstdlib>  
+#include <ctime>   
+using namespace std;
+
+struct Node {
+    int coef;
+    int exp;
+    Node* next;
+    Node(int c = 0, int e = 0) : coef(c), exp(e), next(nullptr) {}
+};
+
+
+Node* NewPoly() {
+    Node* head = new Node();  
+    head->next = head;
+    return head;
+}
+
+
+void insertSort(Node* head, int c, int e) {
+    if (c == 0) return;
+
+    Node* prev = head;
+    Node* curr = head->next;
+
+    while (curr != head && curr->exp > e) {
+        prev = curr;
+        curr = curr->next;
+    }
+
+    if (curr != head && curr->exp == e) {
+        curr->coef += c;
+        if (curr->coef == 0) {
+            prev->next = curr->next;
+            delete curr;
+        }
+        return;
+    }
+
+
+    Node* n = new Node(c, e);
+    n->next = curr;
+    prev->next = n;
+}
+
+
+void tailNode(Node* head, Node*& tail, int c, int e) {
+    if (c == 0) return;
+
+    Node* t = new Node(c, e);
+    t->next = head;
+    tail->next = t;
+    tail = t;
+}
+
+
+Node* polyAdd(Node* A, Node* B) {
+    Node* C = NewPoly();
+    Node* tail = C;
+    Node* pa = A->next;
+    Node* pb = B->next;
+
+    while (pa != A && pb != B) {
+        if (pa->exp > pb->exp) {
+            tailNode(C, tail, pa->coef, pa->exp);
+            pa = pa->next;
+        } else if (pa->exp < pb->exp) {
+            tailNode(C, tail, pb->coef, pb->exp);
+            pb = pb->next;
+        } else {
+            int sum = pa->coef + pb->coef;
+            if (sum != 0) {
+                tailNode(C, tail, sum, pa->exp);
+            }
+            pa = pa->next;
+            pb = pb->next;
+        }
+    }
+    while (pa != A) {
+        tailNode(C, tail, pa->coef, pa->exp);
+        pa = pa->next;
+    }
+    while (pb != B) {
+        tailNode(C, tail, pb->coef, pb->exp);
+        pb = pb->next;
+    }
+    return C;
+}
+
+
+Node* multiplyByTerm(Node* B, int ca, int ea) {
+    Node* T = NewPoly();
+    Node* tail = T;
+
+    for (Node* pb = B->next; pb != B; pb = pb->next) {
+        int c = ca * pb->coef;
+        int e = ea + pb->exp;
+        tailNode(T, tail, c, e);   
+    }
+    return T;
+}
+
+
+Node* polyMul_nondense(Node* A, Node* B) {
+    Node* C = NewPoly(); 
+
+    for (Node* pa = A->next; pa != A; pa = pa->next) {   
+        Node* T = multiplyByTerm(B, pa->coef, pa->exp); 
+        Node* newC = polyAdd(C, T);                     
+        C = newC;
+    }
+    return C;
+}
+
+// ========= dense 乘法 =========
+Node* polyMul_dense(Node* A, Node* B) {
+    // 找最大次方
+    int maxA = 0, maxB = 0;
+    for (Node* p = A->next; p != A; p = p->next)
+        if (p->exp > maxA) maxA = p->exp;
+    for (Node* p = B->next; p != B; p = p->next)
+        if (p->exp > maxB) maxB = p->exp;
+
+    int sizeA = maxA + 1;
+    int sizeB = maxB + 1;
+
+    int* a = new int[sizeA]();   // () → 全部初始化成 0
+    int* b = new int[sizeB]();
+
+    // 填入係數（dense：0..maxExp 範圍都當成可能）
+    for (Node* p = A->next; p != A; p = p->next)
+        a[p->exp] = p->coef;
+    for (Node* p = B->next; p != B; p = p->next)
+        b[p->exp] = p->coef;
+
+    int sizeC = maxA + maxB + 1;
+    int* c = new int[sizeC]();
+
+    // 兩層 for 做 convolution，O((maxA+1)*(maxB+1)) ~ O(mn)
+    for (int i = 0; i < sizeA; ++i) {
+        for (int j = 0; j < sizeB; ++j) {
+            c[i + j] += a[i] * b[j];
+        }
+    }
+
+    // 轉回 linked list（降冪）
+    Node* C = NewPoly();
+    for (int e = maxA + maxB; e >= 0; --e) {
+        if (c[e] != 0) {
+            insertSort(C, c[e], e);
+        }
+    }
+
+    delete[] a;
+    delete[] b;
+    delete[] c;
+    return C;
+}
+
+// ========= 產生「dense input」：x^(n-1) + ... + x + 1 =========
+Node* makeDensePoly(int n) {
+    Node* H = NewPoly();
+    Node* tail = H;
+
+    // 為了讓 list 是「降冪」，從 n-1 到 0
+    for (int e = n - 1; e >= 0; --e) {
+        tailNode(H, tail, 1, e);   // 係數都設 1 就夠做實驗
+    }
+    return H;
+}
+
+// ========= 產生「sparse input」：次方不連續、間隔隨機 =========
+// n = term 數; maxGap 控制「兩項次方差距」最大多少
+Node* makeSparsePoly(int n, int maxGap) {
+    Node* H = NewPoly();
+    Node* tail = H;
+
+    // 從很大的 exponent 往下扣，間距隨機，但保證 strictly 下降、不重複
+    int exp = n * maxGap;  // 這樣最多扣 n*maxGap 也還 >= 0
+
+    for (int i = 0; i < n; ++i) {
+        int coef = 1;                 // 係數先固定 1，測時間足夠
+        tailNode(H, tail, coef, exp); // 目前 exp
+
+        int gap = 1 + rand() % maxGap;  // 1 ~ maxGap 的隨機間距
+        exp -= gap;                      // 下一項 exponent 比這項小，且差距隨機
+    }
+    return H;
+}
+
+int main() {
+    // 讓 rand() 每次執行有不同亂數
+    srand(static_cast<unsigned int>(time(nullptr)));
+
+    int ns[] = {10, 20, 50, 100, 200, 300, 400, 800, 1600};
+    int caseCnt = sizeof(ns) / sizeof(ns[0]);
+
+    cout << fixed << setprecision(8);
+    cout << "n\t"
+         << "dense(dense)\t"
+         << "non_dense(dense)\t"
+         << "dense(sparse)\t"
+         << "non_dense(sparse)\n";
+
+    for (int k = 0; k < caseCnt; ++k) {
+        int n = ns[k];
+
+        // ========= 1. dense input =========
+        Node* A_dense = makeDensePoly(n);
+        Node* B_dense = makeDensePoly(n);
+
+        auto t1 = chrono::steady_clock::now();
+        Node* C_dd = polyMul_dense(A_dense, B_dense);
+        auto t2 = chrono::steady_clock::now();
+        double time_dd = chrono::duration<double>(t2 - t1).count();
+
+        auto t3 = chrono::steady_clock::now();
+        Node* C_ndd = polyMul_nondense(A_dense, B_dense);
+        auto t4 = chrono::steady_clock::now();
+        double time_ndd = chrono::duration<double>(t4 - t3).count();
+
+        // ========= 2. sparse input =========
+        // 次方不連續：maxGap 可以調整「稀疏程度」，越大越 sparse
+        int maxGap = 5;
+        Node* A_sparse = makeSparsePoly(n, maxGap);
+        Node* B_sparse = makeSparsePoly(n, maxGap);
+
+        auto t5 = chrono::steady_clock::now();
+        Node* C_ds = polyMul_dense(A_sparse, B_sparse);
+        auto t6 = chrono::steady_clock::now();
+        double time_ds = chrono::duration<double>(t6 - t5).count();
+
+        auto t7 = chrono::steady_clock::now();
+        Node* C_nds = polyMul_nondense(A_sparse, B_sparse);
+        auto t8 = chrono::steady_clock::now();
+        double time_nds = chrono::duration<double>(t8 - t7).count();
+
+        cout << n << "\t"
+             << time_dd << "\t"
+             << time_ndd << "\t"
+             << time_ds << "\t"
+             << time_nds << "\n";
+
+    }
+
+    return 0;
+}
